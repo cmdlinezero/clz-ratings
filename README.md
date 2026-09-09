@@ -154,14 +154,14 @@ gcloud run deploy clz-ratings \
   --service-account SERVICE_ACCOUNT_EMAIL
 ```
 
-Make sure the Cloud Run service account has permission to read and write objects in `gs://clz-certin`.
+Make sure the Cloud Run service account has permission (e.g. `roles/storage.objectUser`) to read and write objects in `gs://clz-certin`.
 
 ## Docker
 
 ```bash
-docker build -t rating-api .
+docker build -t certin-api .
 docker run --rm -p 8080:8080 \
   -e RATINGS_STORAGE_URI=file://./data \
   -v "$PWD/data:/app/data" \
-  rating-api
+  certin-api
 ```
