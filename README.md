@@ -1,7 +1,33 @@
 # CERTIN API
 
-A tiny Go API for rating functionality on Hugo/static sites.
-Includes Google Cloud Storage persistence across sessions.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/Go-1.23%2B-blue.svg)](https://golang.org/)
+[![Docker](https://img.shields.io/badge/Docker-Distroless-informational.svg)](Dockerfile)
+
+A lightweight Go API built for handling rating functionality on static sites (such as Hugo), featuring Google Cloud Storage (GCS) and local file persistence across sessions.
+
+---
+
+## ✨ Features
+
+- **Zero-Database Overhead:** Uses file-based storage or Google Cloud Storage objects (`.json`) per content ID.
+- **Concurrent-Safe GCS Voting:** Implements generation-match preconditions and retry loops to safely handle race conditions during concurrent votes.
+- **Dynamic SVG Badges:** Generates clean, responsive inline star-rating SVGs (`.svg`) for dynamic embedding.
+- **Flexible Storage Backends:** Easily switch between local file storage (`file://`) for development and GCS (`gs://`) for production.
+- **Production Ready:** Ships with a multi-stage Docker build utilizing Distroless containers for minimal footprint and maximum security.
+
+---
+
+## 🛠️ Configuration & Storage
+
+The application is configured using environment variables:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `RATINGS_STORAGE_URI` | `gs://clz-certin/ratings` | Storage backend URI (`gs://bucket/prefix` or `file://directory`). |
+| `IMAGE_BASE_URL` | *unset* | Optional public base URL for hosted rating SVG images. |
+| `PORT` | `8080` | Port for the HTTP server to listen on. |
+
 
 ## Persistence
 
