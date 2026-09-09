@@ -86,7 +86,8 @@ func main() {
 	mux.HandleFunc("GET /v1/ratings/{id}/image", api.getRatingImage)
 	mux.HandleFunc("POST /v1/ratings/{id}/vote", api.postVote)
 
-	handler := requestLog(mux)
+	// Enable CORS HANDLING
+	handler := requestLog(cors(mux))
 	port := getenv("PORT", "8080")
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -275,6 +276,42 @@ func requestLog(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start).Round(time.Millisecond))
+	})
+}
+
+
+// CORS ENABLEMENT to handle HTTP RESPONSE
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+
+		allowed := origin == "http://localhost:8080" ||
+			origin == "https://your-hugo-site.example"
+
+		if allowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set(
+				"Access-Control-Allow-Methods",
+				"GET, POST, OPTIONS",
+			)
+			w.Header().Set(
+				"Access-Control-Allow-Headers",
+				"Content-Type",
+			)
+		}
+
+		if r.Method == http.MethodOptions {
+			if !allowed {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
+			}
+
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
 	})
 }
 
