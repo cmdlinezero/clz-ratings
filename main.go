@@ -78,7 +78,9 @@ func main() {
 		store:        store,
 		imageBaseURL: strings.TrimRight(os.Getenv("IMAGE_BASE_URL"), "/"),
 	}
+
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -87,7 +89,9 @@ func main() {
 	mux.HandleFunc("POST /v1/ratings/{id}/vote", api.postVote)
 
 	// Enable CORS HANDLING
-	handler := requestLog(cors(mux))
+	handler := cors(mux)
+	handler = requestLog(handler)
+
 	port := getenv("PORT", "8080")
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -285,10 +289,12 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		allowed := origin == "http://localhost:8080" ||
-			origin == "https://your-hugo-site.example"
+		allowedOrigins := map[string]bool{
+			"http://localhost:8080": true,
+			"https://your-production-site.example": true,
+		}
 
-		if allowed {
+		if allowedOrigins[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set(
@@ -302,8 +308,12 @@ func cors(next http.Handler) http.Handler {
 		}
 
 		if r.Method == http.MethodOptions {
-			if !allowed {
-				http.Error(w, "origin not allowed", http.StatusForbidden)
+			if !allowedOrigins[origin] {
+				http.Error(
+					w,
+					"origin not allowed",
+					http.StatusForbidden,
+				)
 				return
 			}
 
