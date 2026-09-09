@@ -1,7 +1,7 @@
 # CERTIN API
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.23%2B-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-1.25%2B-blue.svg)](https://golang.org/)
 [![Docker](https://img.shields.io/badge/Docker-Distroless-informational.svg)](Dockerfile)
 
 A lightweight Go API built for handling rating functionality on static sites (such as Hugo), featuring Google Cloud Storage (GCS) and local file persistence across sessions.

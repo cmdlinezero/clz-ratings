@@ -1,0 +1,31 @@
+# In this directory, run the following command to build this builder.
+# $ gcloud builds submit . --config=cloudbuild.yaml
+
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build_container'
+    args: [
+      'build', 
+      '-t', '${_REGISTRY_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_IMAGE_NAME}:$BUILD_ID',
+      '-t', '${_REGISTRY_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_IMAGE_NAME}:${_REVISION_NAME}',
+      '.'
+    ]
+
+images:
+  - '${_REGISTRY_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_IMAGE_NAME}:$BUILD_ID'
+  - '${_REGISTRY_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/${_IMAGE_NAME}:${_REVISION_NAME}'
+
+tags: [ '${_TAG_NAME}','${_REVISION_NAME}', $BUILD_ID ]
+
+options:
+  substitution_option: 'ALLOW_LOOSE'
+  logging: CLOUD_LOGGING_ONLY
+
+# SUBSTITUTIONS:
+# CloudBuild substitution varibles - only change these values.
+substitutions:           
+  _IMAGE_NAME: clz-certin 
+  _REGISTRY_REGION: us-central1
+  _REPO_NAME: cmdlinezero-images
+  _REVISION_NAME: latest
+  _TAG_NAME: clz
