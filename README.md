@@ -1,167 +1,464 @@
 # CERTIN API
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.25%2B-blue.svg)](https://golang.org/)
+[![License: GNU](https://img.shields.io/badge/License-GNU-green.svg)](https://opensource.org/licenses/GNU)
+[![Go Version](https://img.shields.io/badge/Go-1.25%2B-blue.svg)](https://go.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Distroless-informational.svg)](Dockerfile)
 
-A lightweight Go API built for handling rating functionality on static sites (such as Hugo), featuring Google Cloud Storage (GCS) and local file persistence across sessions.
+A lightweight rating API for static websites such as Hugo.
 
----
+CERTIN provides a simple HTTP API for collecting 1–5 star ratings, retrieving aggregate scores, and generating embeddable SVG rating badges. Ratings can be persisted either to the local filesystem or Google Cloud Storage (GCS), avoiding the need for a dedicated database.
 
-## ✨ Features
+## Features
 
-- **Zero-Database Overhead:** Uses file-based storage or Google Cloud Storage objects (`.json`) per content ID.
-- **Concurrent-Safe GCS Voting:** Implements generation-match preconditions and retry loops to safely handle race conditions during concurrent votes.
-- **Dynamic SVG Badges:** Generates clean, responsive inline star-rating SVGs (`.svg`) for dynamic embedding.
-- **Flexible Storage Backends:** Easily switch between local file storage (`file://`) for development and GCS (`gs://`) for production.
-- **Production Ready:** Ships with a multi-stage Docker build utilizing Distroless containers for minimal footprint and maximum security.
+- **Simple rating API** — submit 1–5 star votes and retrieve aggregate ratings.
+- **No database required** — one small JSON object is stored per content ID.
+- **Google Cloud Storage persistence** — suitable for low-cost production deployments.
+- **Local file persistence** — convenient for development and testing.
+- **Concurrent-safe voting** — GCS generation preconditions prevent lost updates when votes arrive simultaneously.
+- **Dynamic SVG ratings** — expose ratings as directly embeddable SVG images.
+- **Public image URLs** — optionally map content IDs to externally hosted SVG assets.
+- **CORS support** — allows browser-based clients such as Hugo sites to submit ratings.
+- **Cloud Run friendly** — stateless Go service that can scale to zero.
+- **Minimal container image** — multi-stage build with a Distroless runtime.
 
----
-
-## 🛠️ Configuration & Storage
-
-The application is configured using environment variables:
-
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `RATINGS_STORAGE_URI` | `gs://clz-certin/ratings` | Storage backend URI (`gs://bucket/prefix` or `file://directory`). |
-| `IMAGE_BASE_URL` | *unset* | Optional public base URL for hosted rating SVG images. |
-| `PORT` | `8080` | Port for the HTTP server to listen on. |
-
-
-## Persistence
-
-The default persistence endpoint is:
+## Architecture
 
 ```text
-gs://clz-certin/ratings
+                     ┌──────────────────┐
+                     │    Hugo site     │
+                     └────────┬─────────┘
+                              │
+                         HTTP / JSON
+                              │
+                              ▼
+                     ┌──────────────────┐
+                     │    CERTIN API    │
+                     │   Go / Cloud Run │
+                     └────────┬─────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    │                   │
+                    ▼                   ▼
+              Local files       Google Cloud Storage
+              development          production
 ```
 
-Each content item is stored as one object:
+Each content item is represented by a small rating object rather than a database record.
 
-```text
-gs://clz-certin/ratings/{id}.json
+For example:
+
+```json
+{
+  "votes": [2, 3, 11, 49, 62]
+}
 ```
 
-For example, `my-post` is stored at:
+The array contains the number of 1, 2, 3, 4, and 5-star votes respectively.
 
-```text
-gs://clz-certin/ratings/my-post.json
-```
+## Quick start
 
-The endpoint is configurable with `RATINGS_STORAGE_URI`:
+For local development, use filesystem persistence:
 
 ```bash
-RATINGS_STORAGE_URI=gs://another-bucket/some-prefix go run .
-```
+export RATINGS_STORAGE_URI=file://./data
 
-For local development you can retain file persistence:
-
-```bash
-RATINGS_STORAGE_URI=file://./data go run .
-```
-
-### GCS authentication
-
-The GCS store uses Google Application Default Credentials (ADC). On a developer machine, authenticate with the Google Cloud CLI or set `GOOGLE_APPLICATION_CREDENTIALS`. On Cloud Run, attach a service account with access to the bucket.
-
-The service account needs object read/create/update permissions for the configured bucket/prefix. A simple bucket-level role for an MVP is `roles/storage.objectUser`.
-
-Votes use GCS generation-match preconditions. The service reads the current object generation and only replaces that exact generation. If another request wins the race, the vote is reread and retried rather than overwriting the concurrent vote.
-
-## Dependencies
-
-Fetch modules with:
-
-```bash
 go mod tidy
-```
-
-Then:
-
-```bash
 go test ./...
 go run .
+```
+
+The API will listen on:
+
+```text
+http://localhost:8080
+```
+
+Submit a rating:
+
+```bash
+curl -X POST \
+  http://localhost:8080/v1/ratings/my-post/vote \
+  -H 'Content-Type: application/json' \
+  -d '{"rating":4}'
+```
+
+Then retrieve it:
+
+```bash
+curl http://localhost:8080/v1/ratings/my-post
 ```
 
 ## API
 
 ### Get a rating
 
+```http
+GET /v1/ratings/{id}
+```
+
+Example:
+
 ```bash
 curl http://localhost:8080/v1/ratings/my-post
 ```
 
-New IDs return:
+Response:
 
 ```json
-{"id":"my-post","rating":null,"count":0,"max":5}
+{
+  "id": "my-post",
+  "rating": 4.3,
+  "count": 127,
+  "max": 5
+}
 ```
+
+A content ID that has not received any votes returns an empty rating:
+
+```json
+{
+  "id": "my-post",
+  "rating": null,
+  "count": 0,
+  "max": 5
+}
+```
+
+Content does not need to be registered in advance.
 
 ### Submit a vote
 
+```http
+POST /v1/ratings/{id}/vote
+```
+
+The request body must contain a rating from `1` through `5`.
+
 ```bash
-curl -X POST http://localhost:8080/v1/ratings/my-post/vote \
-  -H 'content-type: application/json' \
+curl -X POST \
+  http://localhost:8080/v1/ratings/my-post/vote \
+  -H 'Content-Type: application/json' \
   -d '{"rating":4}'
 ```
 
-The first vote creates the object automatically.
+The first vote automatically creates the underlying rating object.
 
-### SVG
+Invalid or missing ratings return `400 Bad Request`.
+
+### Rating SVG
+
+```http
+GET /v1/ratings/{id}.svg
+```
+
+Example:
 
 ```bash
 curl http://localhost:8080/v1/ratings/my-post.svg
 ```
 
-Hugo example:
+The endpoint generates an SVG representation of the current aggregate rating, suitable for direct use in HTML.
+
+For example, in Hugo:
 
 ```html
-<img src="https://ratings.example.com/v1/ratings/{{ .Params.rating_id }}.svg"
-     alt="Article rating"
-     loading="lazy">
+<img
+  src="https://ratings.example.com/v1/ratings/{{ .Params.rating_id }}.svg"
+  alt="Article rating"
+  loading="lazy">
 ```
 
 ### Image URL
+
+```http
+GET /v1/ratings/{id}/image
+```
+
+This endpoint returns the public SVG URL associated with a content ID.
+
+For example:
 
 ```bash
 curl http://localhost:8080/v1/ratings/bash/image
 ```
 
-Set an external public SVG base URL with:
+When `IMAGE_BASE_URL` is configured as:
 
 ```bash
-IMAGE_BASE_URL=https://storage.googleapis.com/clz-certin/images go run .
+export IMAGE_BASE_URL=https://storage.googleapis.com/clz-certin/images
 ```
 
-The response is:
+the response is:
 
 ```json
-{"id":"bash","image":"https://storage.googleapis.com/clz-certin/images/bash.svg"}
+{
+  "id": "bash",
+  "image": "https://storage.googleapis.com/clz-certin/images/bash.svg"
+}
 ```
 
-If `IMAGE_BASE_URL` is unset, the endpoint returns the API's generated SVG URL.
+If `IMAGE_BASE_URL` is not configured, the endpoint returns the URL of the SVG generated by the API itself.
+
+## Configuration
+
+CERTIN is configured using environment variables.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `RATINGS_STORAGE_URI` | `gs://clz-certin/ratings` | Rating persistence backend. Supports `gs://bucket/prefix` and `file://directory`. |
+| `IMAGE_BASE_URL` | unset | Optional public base URL for externally hosted SVG images. |
+| `CORS_ALLOWED_ORIGINS` | — | Comma-separated origins permitted to access the API from browsers. |
+| `PORT` | `8080` | HTTP server listening port. |
+
+For example:
+
+```bash
+export RATINGS_STORAGE_URI=file://./data
+export CORS_ALLOWED_ORIGINS=http://localhost:8080
+go run .
+```
+
+For production, multiple origins can be configured if supported by the deployment:
+
+```text
+http://localhost:8080,https://example.com
+```
+
+## Persistence
+
+### Google Cloud Storage
+
+The default persistence location is:
+
+```text
+gs://clz-certin/ratings
+```
+
+Each content item is stored independently:
+
+```text
+gs://clz-certin/ratings/{id}.json
+```
+
+For example:
+
+```text
+gs://clz-certin/ratings/my-post.json
+```
+
+A different bucket or prefix can be selected with:
+
+```bash
+RATINGS_STORAGE_URI=gs://another-bucket/ratings go run .
+```
+
+Using one object per content ID allows ratings for different content to be updated independently.
+
+### Concurrent updates
+
+Votes use GCS generation-match preconditions.
+
+When updating a rating, CERTIN:
+
+1. reads the current object and its generation;
+2. applies the new vote;
+3. attempts to replace that exact generation;
+4. retries if another request updated the object first.
+
+This optimistic-concurrency approach prevents simultaneous votes from silently overwriting each other.
+
+### GCS authentication
+
+The GCS backend uses Google Application Default Credentials (ADC).
+
+For local development, authenticate using the Google Cloud CLI or configure `GOOGLE_APPLICATION_CREDENTIALS`.
+
+On Cloud Run, attach a service account with permission to access the configured bucket.
+
+For the MVP, the service account can use:
+
+```text
+roles/storage.objectUser
+```
+
+on the relevant bucket.
+
+### Local filesystem
+
+For development without GCS:
+
+```bash
+RATINGS_STORAGE_URI=file://./data go run .
+```
+
+Rating files will be persisted beneath the configured directory.
+
+Local filesystem storage should not be used for Cloud Run production deployments because Cloud Run instances are ephemeral.
+
+## CORS
+
+Browser clients submitting ratings across origins require CORS.
+
+For example, when running Hugo locally:
+
+```bash
+CORS_ALLOWED_ORIGINS=http://localhost:8080
+```
+
+A successful preflight request can be tested with:
+
+```bash
+curl -i -X OPTIONS \
+  http://localhost:8080/v1/ratings/my-post/vote \
+  -H 'Origin: http://localhost:8080' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type'
+```
+
+A successful response should return `204 No Content` and include headers similar to:
+
+```text
+Access-Control-Allow-Origin: http://localhost:8080
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+```
+
+## Testing
+
+Run the test suite with:
+
+```bash
+go test ./...
+```
+
+For a quick manual API test:
+
+```bash
+ID="rating-test"
+
+curl -X POST \
+  http://localhost:8080/v1/ratings/$ID/vote \
+  -H 'Content-Type: application/json' \
+  -d '{"rating":3}'
+
+curl -X POST \
+  http://localhost:8080/v1/ratings/$ID/vote \
+  -H 'Content-Type: application/json' \
+  -d '{"rating":5}'
+
+curl http://localhost:8080/v1/ratings/$ID
+```
+
+The resulting average should be `4.0` from two ratings.
 
 ## Cloud Run
 
-The application defaults to GCS, so a typical Cloud Run deployment only needs the storage URI if you want to override it:
+Build and deploy directly from the repository:
 
 ```bash
-gcloud run deploy clz-ratings \
+gcloud run deploy clz-certin \
   --source . \
   --region europe-west1 \
+  --allow-unauthenticated \
+  --service-account SERVICE_ACCOUNT_EMAIL \
   --set-env-vars RATINGS_STORAGE_URI=gs://clz-certin/ratings
-  --service-account SERVICE_ACCOUNT_EMAIL
 ```
 
-Make sure the Cloud Run service account has permission (e.g. `roles/storage.objectUser`) to read and write objects in `gs://clz-certin`.
+If the API is called directly from a browser on another origin, also configure the permitted frontend origin:
+
+```bash
+gcloud run services update clz-certin \
+  --region europe-west1 \
+  --set-env-vars \
+RATINGS_STORAGE_URI=gs://clz-certin/ratings,CORS_ALLOWED_ORIGINS=https://example.com
+```
+
+Ensure the Cloud Run service account has permission to read, create, and update objects in the configured GCS bucket.
+
+After deployment:
+
+```bash
+SERVICE_URL="https://YOUR-SERVICE-URL.run.app"
+ID="cloud-run-test"
+
+curl "$SERVICE_URL/v1/ratings/$ID"
+
+curl -X POST \
+  "$SERVICE_URL/v1/ratings/$ID/vote" \
+  -H 'Content-Type: application/json' \
+  -d '{"rating":4}'
+
+curl "$SERVICE_URL/v1/ratings/$ID.svg"
+```
+
+You can verify the persisted object directly:
+
+```bash
+gcloud storage cat \
+  gs://clz-certin/ratings/cloud-run-test.json
+```
 
 ## Docker
 
+Build the container:
+
 ```bash
 docker build -t certin-api .
-docker run --rm -p 8080:8080 \
-  -e RATINGS_STORAGE_URI=file://./data \
+```
+
+Run it locally using filesystem persistence:
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -e RATINGS_STORAGE_URI=file:///app/data \
+  -e CORS_ALLOWED_ORIGINS=http://localhost:8080 \
   -v "$PWD/data:/app/data" \
   certin-api
 ```
+
+Then verify the service:
+
+```bash
+curl http://localhost:8080/v1/ratings/test
+```
+
+## Using with Hugo
+
+A stable content identifier should be used rather than a page title, since titles may change.
+
+For example, add a rating ID to the page front matter:
+
+```yaml
+---
+title: "My Article"
+rating_id: "my-article"
+---
+```
+
+The aggregate rating can then be embedded directly:
+
+```html
+<img
+  src="https://ratings.example.com/v1/ratings/{{ .Params.rating_id }}.svg"
+  alt="Rating"
+  loading="lazy">
+```
+
+A JavaScript voting component can submit the visitor's selected rating to:
+
+```text
+POST /v1/ratings/{id}/vote
+```
+
+with:
+
+```json
+{
+  "rating": 4
+}
+```
+
+## License
+
+GNU
