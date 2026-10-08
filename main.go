@@ -8,6 +8,7 @@ import (
 	"html"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +17,32 @@ import (
 
 type RatingFile struct {
 	Votes [5]uint64 `json:"votes"`
+}
+
+func isAllowedOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	// Allow localhost development on any port.
+	if u.Scheme == "http" &&
+		(u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1") {
+		return true
+	}
+
+	// Production origins.
+	switch origin {
+	case "https://richrose.dev",
+		"https://richrose.dev":
+	case "https://decoderr.dev",
+		"https://decoderr.dev":
+	case "https://certin.app",
+		"https://certin.app":
+		return true
+	}
+
+	return false
 }
 
 func (r RatingFile) Count() uint64 {
@@ -289,12 +316,8 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		allowedOrigins := map[string]bool{
-			"http://localhost:8080": true,
-			"https://your-production-site.example": true,
-		}
-
-		if allowedOrigins[origin] {
+		// Apply explicit domain check - isAllowedOrigin(origin)
+		if origin != "" && isAllowedOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set(
@@ -308,12 +331,8 @@ func cors(next http.Handler) http.Handler {
 		}
 
 		if r.Method == http.MethodOptions {
-			if !allowedOrigins[origin] {
-				http.Error(
-					w,
-					"origin not allowed",
-					http.StatusForbidden,
-				)
+			if !isAllowedOrigin(origin) {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
 				return
 			}
 
@@ -324,6 +343,46 @@ func cors(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// func cors(next http.Handler) http.Handler {
+// 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		origin := r.Header.Get("Origin")
+// 
+// 		allowedOrigins := map[string]bool{
+// 			"http://localhost:8080": true,
+// 			"https://your-production-site.example": true,
+// 		}
+// 
+// 		if allowedOrigins[origin] {
+// 			w.Header().Set("Access-Control-Allow-Origin", origin)
+// 			w.Header().Set("Vary", "Origin")
+// 			w.Header().Set(
+// 				"Access-Control-Allow-Methods",
+// 				"GET, POST, OPTIONS",
+// 			)
+// 			w.Header().Set(
+// 				"Access-Control-Allow-Headers",
+// 				"Content-Type",
+// 			)
+// 		}
+// 
+// 		if r.Method == http.MethodOptions {
+// 			if !allowedOrigins[origin] {
+// 				http.Error(
+// 					w,
+// 					"origin not allowed",
+// 					http.StatusForbidden,
+// 				)
+// 				return
+// 			}
+// 
+// 			w.WriteHeader(http.StatusNoContent)
+// 			return
+// 		}
+// 
+// 		next.ServeHTTP(w, r)
+// 	})
+// }
 
 var _ = errors.New
 var _ = strconv.Itoa
