@@ -19,27 +19,43 @@ type RatingFile struct {
 	Votes [5]uint64 `json:"votes"`
 }
 
-func isAllowedOrigin(origin string) bool {
+func parseAllowedOrigins(value string) []string {
+	var origins []string
+	for _, origin := range strings.Split(value, ",") {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			origins = append(origins, strings.TrimRight(origin, "/"))
+		}
+	}
+	return origins
+}
+
+func isAllowedOrigin(origin string, allowedOrigins []string) bool {
 	u, err := url.Parse(origin)
-	if err != nil {
+	if err != nil || u.Scheme == "" || u.Host == "" {
 		return false
 	}
 
-	// Allow localhost development on any port.
-	if u.Scheme == "http" &&
-		(u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1") {
-		return true
+	// Origins never contain a path. Reject malformed configuration/input rather
+	// than accidentally matching something that only looks like an origin.
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return false
 	}
 
-	// Production origins.
-	switch origin {
-	case "https://richrose.dev",
-		"https://richrose.dev":
-	case "https://decoderr.dev",
-		"https://decoderr.dev":
-	case "https://certin.app",
-		"https://certin.app":
-		return true
+	for _, allowed := range allowedOrigins {
+		// Wildcard ports are intentionally restricted to local development.
+		if allowed == "http://localhost:*" &&
+			u.Scheme == "http" && u.Hostname() == "localhost" && u.Port() != "" {
+			return true
+		}
+		if allowed == "http://127.0.0.1:*" &&
+			u.Scheme == "http" && u.Hostname() == "127.0.0.1" && u.Port() != "" {
+			return true
+		}
+
+		if origin == allowed {
+			return true
+		}
 	}
 
 	return false
@@ -115,8 +131,14 @@ func main() {
 	mux.HandleFunc("GET /v1/ratings/{id}/image", api.getRatingImage)
 	mux.HandleFunc("POST /v1/ratings/{id}/vote", api.postVote)
 
-	// Enable CORS HANDLING
-	handler := cors(mux)
+	allowedOrigins := parseAllowedOrigins(getenv(
+		"CORS_ALLOWED_ORIGINS",
+		// "http://localhost:*,http://127.0.0.1:*,https://example.com",
+		"http://localhost:*,http://127.0.0.1:*",
+	))
+
+	// Enable CORS handling before requests reach the method-aware ServeMux.
+	handler := cors(allowedOrigins, mux)
 	handler = requestLog(handler)
 
 	port := getenv("PORT", "8080")
@@ -310,32 +332,24 @@ func requestLog(next http.Handler) http.Handler {
 	})
 }
 
-
-// CORS ENABLEMENT to handle HTTP RESPONSE
-func cors(next http.Handler) http.Handler {
+// cors handles browser cross-origin requests before they reach the method-aware ServeMux.
+func cors(allowedOrigins []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+		allowed := origin != "" && isAllowedOrigin(origin, allowedOrigins)
 
-		// Apply explicit domain check - isAllowedOrigin(origin)
-		if origin != "" && isAllowedOrigin(origin) {
+		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
-			w.Header().Set(
-				"Access-Control-Allow-Methods",
-				"GET, POST, OPTIONS",
-			)
-			w.Header().Set(
-				"Access-Control-Allow-Headers",
-				"Content-Type",
-			)
+			w.Header().Add("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		}
 
 		if r.Method == http.MethodOptions {
-			if !isAllowedOrigin(origin) {
+			if !allowed {
 				http.Error(w, "origin not allowed", http.StatusForbidden)
 				return
 			}
-
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -343,46 +357,3 @@ func cors(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
-// func cors(next http.Handler) http.Handler {
-// 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 		origin := r.Header.Get("Origin")
-// 
-// 		allowedOrigins := map[string]bool{
-// 			"http://localhost:8080": true,
-// 			"https://your-production-site.example": true,
-// 		}
-// 
-// 		if allowedOrigins[origin] {
-// 			w.Header().Set("Access-Control-Allow-Origin", origin)
-// 			w.Header().Set("Vary", "Origin")
-// 			w.Header().Set(
-// 				"Access-Control-Allow-Methods",
-// 				"GET, POST, OPTIONS",
-// 			)
-// 			w.Header().Set(
-// 				"Access-Control-Allow-Headers",
-// 				"Content-Type",
-// 			)
-// 		}
-// 
-// 		if r.Method == http.MethodOptions {
-// 			if !allowedOrigins[origin] {
-// 				http.Error(
-// 					w,
-// 					"origin not allowed",
-// 					http.StatusForbidden,
-// 				)
-// 				return
-// 			}
-// 
-// 			w.WriteHeader(http.StatusNoContent)
-// 			return
-// 		}
-// 
-// 		next.ServeHTTP(w, r)
-// 	})
-// }
-
-var _ = errors.New
-var _ = strconv.Itoa
