@@ -207,14 +207,14 @@ CERTIN is configured using environment variables.
 | --- | --- | --- |
 | `RATINGS_STORAGE_URI` | `gs://clz-certin/ratings` | Rating persistence backend. Supports `gs://bucket/prefix` and `file://directory`. |
 | `IMAGE_BASE_URL` | unset | Optional public base URL for externally hosted SVG images. |
-| `CORS_ALLOWED_ORIGINS` | — | Comma-separated origins permitted to access the API from browsers. |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:*,http://127.0.0.1:*,https://richrose.dev,https://decoderr.dev,https://certin.app` | Comma-separated browser origins. Production origins use exact matching; `http://localhost:*` and `http://127.0.0.1:*` allow any local development port. |
 | `PORT` | `8080` | HTTP server listening port. |
 
 For example:
 
 ```bash
 export RATINGS_STORAGE_URI=file://./data
-export CORS_ALLOWED_ORIGINS=http://localhost:8080
+export CORS_ALLOWED_ORIGINS="http://localhost:*,http://127.0.0.1:*"
 go run .
 ```
 
@@ -299,10 +299,12 @@ Local filesystem storage should not be used for Cloud Run production deployments
 
 Browser clients submitting ratings across origins require CORS.
 
+`CORS_ALLOWED_ORIGINS` is configuration-driven, so adding a production site does not require recompiling the service. Normal domains are matched exactly. For local development only, `http://localhost:*` and `http://127.0.0.1:*` support any explicit port, such as `8080`, `8087`, or Hugo's `1313`. Arbitrary domain wildcards are not supported.
+
 For example, when running Hugo locally:
 
 ```bash
-CORS_ALLOWED_ORIGINS=http://localhost:8080
+CORS_ALLOWED_ORIGINS="http://localhost:*,http://127.0.0.1:*"
 ```
 
 A successful preflight request can be tested with:
@@ -370,7 +372,7 @@ If the API is called directly from a browser on another origin, also configure t
 gcloud run services update clz-certin \
   --region europe-west1 \
   --set-env-vars \
-RATINGS_STORAGE_URI=gs://clz-certin/ratings,CORS_ALLOWED_ORIGINS=https://example.com
+  RATINGS_STORAGE_URI=gs://clz-certin/ratings,CORS_ALLOWED_ORIGINS=https://example.com
 ```
 
 Ensure the Cloud Run service account has permission to read, create, and update objects in the configured GCS bucket.
@@ -412,7 +414,7 @@ Run it locally using filesystem persistence:
 docker run --rm \
   -p 8080:8080 \
   -e RATINGS_STORAGE_URI=file:///app/data \
-  -e CORS_ALLOWED_ORIGINS=http://localhost:8080 \
+  -e CORS_ALLOWED_ORIGINS="http://localhost:*,http://127.0.0.1:*" \
   -v "$PWD/data:/app/data" \
   certin-api
 ```

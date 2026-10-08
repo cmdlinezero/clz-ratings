@@ -136,3 +136,86 @@ func TestNewStoreFile(t *testing.T) {
 		t.Fatalf("store type=%T", store)
 	}
 }
+
+func TestParseAllowedOrigins(t *testing.T) {
+	got := parseAllowedOrigins(" http://localhost:* , https://example.com/ ,,http://127.0.0.1:* ")
+	want := []string{"http://localhost:*", "https://example.com", "http://127.0.0.1:*"}
+	if len(got) != len(want) {
+		t.Fatalf("got=%v want=%v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d]=%q want=%q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestAllowedOrigins(t *testing.T) {
+	allowed := parseAllowedOrigins(
+		"http://localhost:*,http://127.0.0.1:*,https://example.com",
+	)
+
+	tests := []struct {
+		origin string
+		want   bool
+	}{
+		{"http://localhost:8080", true},
+		{"http://localhost:8087", true},
+		{"http://localhost:1313", true},
+		{"http://127.0.0.1:8088", true},
+		{"https://example.com", true},
+		{"http://localhost", false},
+		{"https://localhost:8080", false},
+		{"http://localhost.evil.example:8080", false},
+		{"https://www.example.com", false},
+		{"https://evil.example", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.origin, func(t *testing.T) {
+			if got := isAllowedOrigin(tc.origin, allowed); got != tc.want {
+				t.Fatalf("isAllowedOrigin(%q)=%v want=%v", tc.origin, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCORSPreflightAllowsLocalhostWildcardPort(t *testing.T) {
+	allowed := parseAllowedOrigins("http://localhost:*,https://example.com")
+	handler := cors(allowed, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("preflight should not reach wrapped handler")
+	}))
+
+	req := httptest.NewRequest(http.MethodOptions, "/v1/ratings/post-1/vote", nil)
+	req.Header.Set("Origin", "http://localhost:8087")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:8087" {
+		t.Fatalf("Access-Control-Allow-Origin=%q", got)
+	}
+}
+
+func TestCORSPreflightRejectsUnconfiguredOrigin(t *testing.T) {
+	allowed := parseAllowedOrigins("http://localhost:*,https://example.com")
+	handler := cors(allowed, http.NotFoundHandler())
+
+	req := httptest.NewRequest(http.MethodOptions, "/v1/ratings/post-1/vote", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("unexpected Access-Control-Allow-Origin=%q", got)
+	}
+}
